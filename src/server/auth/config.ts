@@ -1,6 +1,9 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
-import DiscordProvider from "next-auth/providers/discord";
+import Credentials from "next-auth/providers/credentials";
+import bcrypt from "bcrypt";
+import { ZodError } from "zod";
+import { signInSchema } from "~/schemas/auth";
 
 import { db } from "~/server/db";
 
@@ -32,16 +35,41 @@ declare module "next-auth" {
  */
 export const authConfig = {
   providers: [
-    DiscordProvider,
-    /**
-     * ...add more providers here.
-     *
-     * Most other providers require a bit more work than the Discord provider. For example, the
-     * GitHub provider requires you to add the `refresh_token_expires_in` field to the Account
-     * model. Refer to the NextAuth.js docs for the provider you want to use. Example:
-     *
-     * @see https://next-auth.js.org/providers/github
-     */
+    Credentials({
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      authorize: async (credentials) => {
+        console.log(credentials, "credentials");
+        try {
+          let user = null;
+          const { email, password } = await signInSchema.parseAsync(credentials)
+          // logic to salt and hash password
+          
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+          const hashedPassword = await bcrypt.hash(password, 10)
+          
+          // logic to check if user exists
+          const user = await db.user.findUnique({
+            where: { email },
+          });
+          if (!user) {
+            throw new Error("User not found");
+          }
+          // const isPasswordValid = await bcrypt.compare(password, user.password);
+          // if (!isPasswordValid) {
+          //   throw new Error("Invalid password");
+          // }
+          return user;
+        } catch (error: unknown) {
+          if (error instanceof ZodError) {
+            throw new Error(error.message);
+          }
+        }
+        return null;
+      },
+    }),
   ],
   adapter: PrismaAdapter(db),
   callbacks: {
